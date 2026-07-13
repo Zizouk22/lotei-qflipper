@@ -169,6 +169,40 @@ Rectangle {
                     onClicked: Lotei.cycleModel()
                 }
             }
+            // click-to-toggle chat brain: local Ollama <-> DeepSeek cloud
+            Text {
+                text: Lotei.cloudMode ? "☁ cloud" : "⌂ local"
+                color: (Lotei.cloudMode && !Lotei.apiKeySet) ? Theme.color.mediumorange1
+                       : (brainMouse.containsMouse ? Theme.color.lightorange2 : Theme.color.mediumorange4)
+                font.family: "Share Tech Mono"
+                font.pixelSize: 11
+                Layout.alignment: Qt.AlignVCenter
+                MouseArea {
+                    id: brainMouse
+                    anchors.fill: parent
+                    anchors.margins: -4
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: Lotei.provider = (Lotei.cloudMode ? "ollama" : "deepseek")
+                }
+            }
+            // cloud settings (paste API key + pick model) -- only on the cloud brain
+            Text {
+                visible: Lotei.cloudMode
+                text: "⚙"
+                color: cfgMouse.containsMouse ? Theme.color.lightorange2 : Theme.color.mediumorange4
+                font.family: "Share Tech Mono"
+                font.pixelSize: 12
+                Layout.alignment: Qt.AlignVCenter
+                MouseArea {
+                    id: cfgMouse
+                    anchors.fill: parent
+                    anchors.margins: -4
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: cloudCfg.open()
+                }
+            }
             Text {
                 text: "voice"
                 color: Lotei.muted ? Theme.color.mediumorange1 : Theme.color.lightorange2
@@ -435,6 +469,94 @@ Rectangle {
                 text: "Send"
                 enabled: !Lotei.thinking && input.text.length > 0
                 onClicked: root.sendCurrent()
+            }
+        }
+    }
+
+    // ---- cloud (DeepSeek) settings: API key + model ----
+    Popup {
+        id: cloudCfg
+        parent: Overlay.overlay
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        dim: true
+        width: 360
+        padding: 16
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: "#0b0410"
+            radius: 9
+            border.width: 2
+            border.color: Theme.color.lightorange2
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 10
+
+            Text {
+                text: "☁ DeepSeek cloud brain"
+                color: Theme.color.lightorange2
+                font.family: "Share Tech Mono"; font.pixelSize: 15; font.bold: true
+            }
+            Text {
+                text: Lotei.apiKeySet ? "A key is saved. Paste a new one to replace it."
+                                      : "Paste your DeepSeek API key (stored locally, never synced)."
+                color: Theme.color.mediumorange4
+                font.family: "Share Tech Mono"; font.pixelSize: 11
+                wrapMode: Text.WordWrap; Layout.fillWidth: true
+            }
+            TextField {
+                id: keyField
+                Layout.fillWidth: true
+                echoMode: TextInput.Password
+                placeholderText: Lotei.apiKeySet ? "•••••••• (saved)" : "sk-…"
+                color: "white"
+                font.family: "Share Tech Mono"; font.pixelSize: 12
+                background: Rectangle { color: "#160a1f"; radius: 5; border.width: 1; border.color: Theme.color.mediumorange2 }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Text {
+                    text: "model"
+                    color: Theme.color.mediumorange4
+                    font.family: "Share Tech Mono"; font.pixelSize: 11
+                    Layout.alignment: Qt.AlignVCenter
+                }
+                TextField {
+                    id: modelField
+                    Layout.fillWidth: true
+                    text: Lotei.cloudModel
+                    placeholderText: "deepseek-chat"
+                    color: "white"
+                    font.family: "Share Tech Mono"; font.pixelSize: 12
+                    background: Rectangle { color: "#160a1f"; radius: 5; border.width: 1; border.color: Theme.color.mediumorange2 }
+                }
+            }
+            Text {
+                text: "deepseek-chat (fast) or deepseek-reasoner (deeper). Full Flipper tool access stays on the cloud brain."
+                color: Theme.color.mediumorange1
+                font.family: "Share Tech Mono"; font.pixelSize: 10
+                wrapMode: Text.WordWrap; Layout.fillWidth: true
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: 8
+                Button {
+                    text: "Cancel"
+                    onClicked: cloudCfg.close()
+                }
+                Button {
+                    text: "Save"
+                    onClicked: {
+                        if (keyField.text.length > 0) { Lotei.setApiKey(keyField.text); }
+                        Lotei.setCloudModel(modelField.text.length > 0 ? modelField.text : "deepseek-chat");
+                        keyField.text = "";
+                        cloudCfg.close();
+                    }
+                }
             }
         }
     }

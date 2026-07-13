@@ -38,6 +38,10 @@ class LoteiBackend : public QObject
     Q_PROPERTY(bool setupComplete READ setupComplete NOTIFY setupCompleteChanged)
     Q_PROPERTY(bool ollamaOnline READ ollamaOnline NOTIFY modelChanged)
     Q_PROPERTY(QString manualName READ manualName WRITE setManualName NOTIFY manualNameChanged)
+    Q_PROPERTY(QString provider READ provider WRITE setProvider NOTIFY providerChanged)
+    Q_PROPERTY(bool cloudMode READ cloudMode NOTIFY providerChanged)   // active brain is DeepSeek (cloud)
+    Q_PROPERTY(bool apiKeySet READ apiKeySet NOTIFY apiKeyChanged)     // a DeepSeek key is stored
+    Q_PROPERTY(QString cloudModel READ cloudModel WRITE setCloudModel NOTIFY cloudModelChanged)
 
 public:
     explicit LoteiBackend(QObject *parent = nullptr);
@@ -60,6 +64,15 @@ public:
     bool ollamaOnline() const;
     QString manualName() const;
     void setManualName(const QString &name);
+
+    // Chat brain provider: "ollama" (local, tool-capable) or "deepseek" (cloud, chat-only).
+    QString provider() const;
+    void setProvider(const QString &p);
+    bool cloudMode() const;                       // true when the active brain is DeepSeek
+    bool apiKeySet() const;                       // a DeepSeek key is stored
+    QString cloudModel() const;
+    void setCloudModel(const QString &model);
+    Q_INVOKABLE void setApiKey(const QString &key);   // store the DeepSeek key (QSettings, runtime-only)
 
     Q_INVOKABLE void send(const QString &userText, const QString &deviceContext);
     Q_INVOKABLE void reset();
@@ -89,6 +102,9 @@ signals:
     void setupCompleteChanged();
     void manualNameChanged();
     void partialReceived(const QString &text);   // live-typing: reply text so far
+    void providerChanged();
+    void apiKeyChanged();
+    void cloudModelChanged();
 
 private:
     void setThinking(bool value);
@@ -103,8 +119,11 @@ private:
     void loadHistory();   // restore past conversation from disk
     void saveHistory();   // persist conversation (user + final replies only)
 
-    void dispatchToOllama();                                   // POST history + tools
+    void dispatch();                                           // route to the active brain
+    void dispatchToOllama();                                   // POST history + tools (local)
+    void dispatchCloud();                                      // POST history to DeepSeek (cloud, chat-only)
     void onStreamData(QNetworkReply *reply);      // parse streamed NDJSON chunks
+    void onCloudStreamData(QNetworkReply *reply); // parse DeepSeek SSE (OpenAI) chunks
     void onStreamFinished(QNetworkReply *reply);
     void finalizeStream();                        // a full response arrived
     void runToolCalls(const QJsonArray &toolCalls, int index); // execute tools sequentially
@@ -122,6 +141,9 @@ private:
     qreal      m_voiceVolume = 1.0;
     qreal      m_musicVolume = 0.55;
     QString     m_model;    // selected Ollama model (persisted)
+    QString     m_provider = QStringLiteral("ollama");  // "ollama" (local) | "deepseek" (cloud)
+    QString     m_apiKey;    // DeepSeek API key (persisted at runtime; NEVER committed to git)
+    QString     m_cloudModel;// DeepSeek model id (e.g. deepseek-chat)
     QStringList m_models;   // models discovered via /api/tags
     QStringList m_noToolModels;  // models Ollama rejects tools for (e.g. Gemma) -> chat-only
     bool        m_setupComplete = false;
@@ -144,7 +166,9 @@ private:
 
     QByteArray m_streamBuf;       // buffer for partial streamed lines
     QString    m_streamContent;   // accumulated reply text this response
-    QJsonArray m_streamTools;     // accumulated tool calls this response
+    QJsonArray m_streamTools;     // accumulated tool calls this response (normalised)
+    QJsonArray m_cloudToolAcc;    // DeepSeek SSE tool-call fragments, keyed by index
+    int        m_callSeq = 0;     // mints tool-call ids so cloud history stays valid
     QNetworkReply *m_currentReply = nullptr;
 };
 

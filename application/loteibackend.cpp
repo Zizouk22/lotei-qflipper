@@ -276,6 +276,9 @@ LoteiBackend::LoteiBackend(QObject *parent)
     m_voiceVolume = QSettings().value(QStringLiteral("lotei/voiceVolume"), 1.0).toDouble();
     m_musicVolume = QSettings().value(QStringLiteral("lotei/musicVolume"), 0.55).toDouble();
     m_model = QSettings().value(QStringLiteral("lotei/model"), QString::fromUtf8(LOTEI_MODEL)).toString();
+    m_provider = QSettings().value(QStringLiteral("lotei/provider"), QStringLiteral("ollama")).toString();
+    m_apiKey = QSettings().value(QStringLiteral("lotei/deepseekKey")).toString();
+    m_cloudModel = QSettings().value(QStringLiteral("lotei/deepseekModel"), QStringLiteral("deepseek-chat")).toString();
     m_setupComplete = QSettings().value(QStringLiteral("lotei/setupComplete"), false).toBool();
     m_manualName = QSettings().value(QStringLiteral("lotei/manualName")).toString();
 #ifdef HZUI_VOICE
@@ -563,7 +566,45 @@ void LoteiBackend::cycleVoice()
 
 QString LoteiBackend::modelName() const
 {
+    if (cloudMode()) {
+        return m_cloudModel.isEmpty() ? QStringLiteral("deepseek-chat") : m_cloudModel;
+    }
     return m_model;
+}
+
+QString LoteiBackend::provider() const { return m_provider; }
+bool LoteiBackend::cloudMode() const   { return m_provider == QLatin1String("deepseek"); }
+bool LoteiBackend::apiKeySet() const   { return !m_apiKey.isEmpty(); }
+QString LoteiBackend::cloudModel() const { return m_cloudModel; }
+
+void LoteiBackend::setProvider(const QString &p)
+{
+    const QString v = (p == QLatin1String("deepseek")) ? QStringLiteral("deepseek")
+                                                       : QStringLiteral("ollama");
+    if (v == m_provider) { return; }
+    m_provider = v;
+    QSettings().setValue(QStringLiteral("lotei/provider"), m_provider);
+    emit providerChanged();
+    emit modelChanged();   // the header label reflects whichever brain is active
+}
+
+void LoteiBackend::setApiKey(const QString &key)
+{
+    const QString k = key.trimmed();
+    if (k == m_apiKey) { return; }
+    m_apiKey = k;
+    QSettings().setValue(QStringLiteral("lotei/deepseekKey"), m_apiKey);
+    emit apiKeyChanged();
+}
+
+void LoteiBackend::setCloudModel(const QString &model)
+{
+    const QString m = model.trimmed();
+    if (m == m_cloudModel) { return; }
+    m_cloudModel = m;
+    QSettings().setValue(QStringLiteral("lotei/deepseekModel"), m_cloudModel);
+    emit cloudModelChanged();
+    if (cloudMode()) { emit modelChanged(); }
 }
 
 QStringList LoteiBackend::availableModels() const
@@ -784,7 +825,15 @@ void LoteiBackend::send(const QString &userText, const QString &deviceContext)
     m_toolRounds = 0;
     m_history.append(QJsonObject{{"role", "user"}, {"content", userText}});
     setThinking(true);
-    dispatchToOllama();
+    dispatch();
+}
+
+// Route each turn to the active brain. Ollama drives the Flipper tools; DeepSeek
+// (cloud) is chat-only for now, so tool rounds never call back into this path.
+void LoteiBackend::dispatch()
+{
+    if (cloudMode()) { dispatchCloud(); }
+    else             { dispatchToOllama(); }
 }
 
 void LoteiBackend::dispatchToOllama()
@@ -821,9 +870,149 @@ void LoteiBackend::dispatchToOllama()
     connect(reply, &QNetworkReply::finished,  this, [this, reply]() { onStreamFinished(reply); });
 }
 
+// Cloud brain: DeepSeek's OpenAI-compatible /chat/completions (SSE, Bearer auth).
+// Full agentic parity with the local brain -- it gets the same Flipper tools, and
+// the shared history (stored in Ollama shape) is converted to the OpenAI schema on
+// the way out (tool_calls arguments as a JSON *string*, tool results keyed by id).
+void LoteiBackend::dispatchCloud()
+{
+    if (m_apiKey.isEmpty()) {
+        setThinking(false);
+        emit errorOccurred(QStringLiteral("No DeepSeek key yet -- paste one in LOTEI's cloud settings and I'll wake up."));
+        return;
+    }
+
+    QJsonArray messages;
+    messages.append(QJsonObject{{"role", "system"}, {"content", systemPrompt()}});
+    for (const QJsonValue &v : m_history) {
+        const QJsonObject o = v.toObject();
+        const QString role = o.value("role").toString();
+        QJsonObject m{{"role", role}, {"content", o.value("content").toString()}};
+
+        // assistant tool calls: Ollama stores arguments as an object; OpenAI wants a string.
+        if (role == QLatin1String("assistant") && o.contains(QStringLiteral("tool_calls"))) {
+            QJsonArray outCalls;
+            for (const QJsonValue &tcv : o.value("tool_calls").toArray()) {
+                const QJsonObject tc = tcv.toObject();
+                const QJsonObject fn = tc.value("function").toObject();
+                const QJsonValue argsV = fn.value("arguments");
+                const QString argsStr = argsV.isString()
+                        ? argsV.toString()
+                        : QString::fromUtf8(QJsonDocument(argsV.toObject()).toJson(QJsonDocument::Compact));
+                outCalls.append(QJsonObject{
+                    {"id", tc.value("id").toString(QStringLiteral("call_0"))},
+                    {"type", "function"},
+                    {"function", QJsonObject{{"name", fn.value("name").toString()}, {"arguments", argsStr}}}
+                });
+            }
+            if (!outCalls.isEmpty()) { m["tool_calls"] = outCalls; }
+        }
+        // tool result: OpenAI needs the id of the call it answers.
+        if (role == QLatin1String("tool")) {
+            const QString tcid = o.value("tool_call_id").toString();
+            if (!tcid.isEmpty()) { m["tool_call_id"] = tcid; }
+        }
+        messages.append(m);
+    }
+
+    QJsonObject body;
+    body["model"] = m_cloudModel.isEmpty() ? QStringLiteral("deepseek-chat") : m_cloudModel;
+    body["messages"] = messages;
+    body["tools"] = loteiTools();   // same Flipper-driving tools as the local brain
+    body["stream"] = true;
+    m_cloudToolAcc = QJsonArray();
+
+    QNetworkRequest request{QUrl(QStringLiteral("https://api.deepseek.com/chat/completions"))};
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QByteArrayLiteral("application/json"));
+    request.setRawHeader(QByteArrayLiteral("Authorization"),
+                         QByteArrayLiteral("Bearer ") + m_apiKey.toUtf8());
+    request.setTransferTimeout(0);
+
+    m_streamBuf.clear();
+    m_streamContent.clear();
+    m_streamTools = QJsonArray();
+
+    QNetworkReply *reply = m_net.post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
+    m_currentReply = reply;
+    connect(reply, &QNetworkReply::readyRead, this, [this, reply]() { onStreamData(reply); });
+    connect(reply, &QNetworkReply::finished,  this, [this, reply]() { onStreamFinished(reply); });
+}
+
+// DeepSeek streams Server-Sent Events: `data: {json}\n` lines, ending at
+// `data: [DONE]`. Reply text is at choices[0].delta.content; tool calls arrive as
+// fragments at choices[0].delta.tool_calls[] keyed by `index` (name once, then the
+// arguments JSON in pieces) -- we accumulate them and normalise to the Ollama shape
+// finalizeStream/runToolCalls expect (function.arguments as a parsed object).
+void LoteiBackend::onCloudStreamData(QNetworkReply *reply)
+{
+    if (reply != m_currentReply) { return; }
+    m_streamBuf += reply->readAll();
+
+    int nl;
+    while ((nl = m_streamBuf.indexOf('\n')) >= 0) {
+        const QByteArray line = m_streamBuf.left(nl).trimmed();
+        m_streamBuf.remove(0, nl + 1);
+        if (line.isEmpty() || !line.startsWith("data:")) { continue; }
+
+        const QByteArray payload = line.mid(5).trimmed();
+        if (payload == "[DONE]") {
+            // Convert the accumulated OpenAI tool calls to the normalised shape.
+            m_streamTools = QJsonArray();
+            for (const QJsonValue &cv : m_cloudToolAcc) {
+                const QJsonObject c = cv.toObject();
+                const QString name = c.value(QStringLiteral("name")).toString();
+                if (name.isEmpty()) { continue; }
+                const QJsonObject argsObj = QJsonDocument::fromJson(
+                        c.value(QStringLiteral("args")).toString().toUtf8()).object();
+                m_streamTools.append(QJsonObject{
+                    {"id", c.value(QStringLiteral("id")).toString()},
+                    {"type", "function"},
+                    {"function", QJsonObject{{"name", name}, {"arguments", argsObj}}}
+                });
+            }
+            finalizeStream();
+            return;
+        }
+
+        const QJsonArray choices = QJsonDocument::fromJson(payload).object()
+                                       .value(QStringLiteral("choices")).toArray();
+        if (choices.isEmpty()) { continue; }
+        const QJsonObject delta = choices.at(0).toObject().value(QStringLiteral("delta")).toObject();
+
+        const QString piece = delta.value(QStringLiteral("content")).toString();
+        if (!piece.isEmpty()) {
+            m_streamContent += piece;
+            emit partialReceived(m_streamContent);   // live typing
+        }
+
+        // accumulate tool-call fragments by their stream index
+        const QJsonArray tcs = delta.value(QStringLiteral("tool_calls")).toArray();
+        for (const QJsonValue &tv : tcs) {
+            const QJsonObject t = tv.toObject();
+            const int idx = t.value(QStringLiteral("index")).toInt();
+            while (m_cloudToolAcc.size() <= idx) {
+                m_cloudToolAcc.append(QJsonObject{{"id", ""}, {"name", ""}, {"args", ""}});
+            }
+            QJsonObject cur = m_cloudToolAcc.at(idx).toObject();
+            if (t.contains(QStringLiteral("id")) && !t.value(QStringLiteral("id")).toString().isEmpty()) {
+                cur["id"] = t.value(QStringLiteral("id")).toString();
+            }
+            const QJsonObject fn = t.value(QStringLiteral("function")).toObject();
+            const QString fname = fn.value(QStringLiteral("name")).toString();
+            if (!fname.isEmpty()) { cur["name"] = fname; }
+            if (fn.contains(QStringLiteral("arguments"))) {
+                cur["args"] = cur.value(QStringLiteral("args")).toString()
+                              + fn.value(QStringLiteral("arguments")).toString();
+            }
+            m_cloudToolAcc[idx] = cur;
+        }
+    }
+}
+
 void LoteiBackend::onStreamData(QNetworkReply *reply)
 {
     if (reply != m_currentReply) { return; }
+    if (cloudMode()) { onCloudStreamData(reply); return; }
     m_streamBuf += reply->readAll();
 
     int nl;
@@ -857,8 +1046,23 @@ void LoteiBackend::finalizeStream()
     // the model leaked as plain text (qwen2.5 does this when narrating a batch)
     // so they run instead of being printed at the user.
     QJsonArray toolCalls = m_streamTools;
-    if (toolCalls.isEmpty()) {
+    // The cloud brain returns structured tool_calls; only the local model leaks calls
+    // as plain text, so text-salvage is a local-only fallback.
+    if (toolCalls.isEmpty() && !cloudMode()) {
         toolCalls = salvageToolCalls(m_streamContent);
+    }
+    // Make sure every call carries an id so a later cloud turn (OpenAI schema) can
+    // pair each tool result to its call. Ollama-native calls have none -- mint them.
+    {
+        QJsonArray idTagged;
+        for (const QJsonValue &tcv : toolCalls) {
+            QJsonObject tc = tcv.toObject();
+            if (tc.value(QStringLiteral("id")).toString().isEmpty()) {
+                tc["id"] = QStringLiteral("call_%1").arg(m_callSeq++);
+            }
+            idTagged.append(tc);
+        }
+        toolCalls = idTagged;
     }
     if (!toolCalls.isEmpty() && m_toolRounds < LOTEI_MAX_TOOL_ROUNDS) {
         m_history.append(QJsonObject{
@@ -909,7 +1113,14 @@ void LoteiBackend::onStreamFinished(QNetworkReply *reply)
     setThinking(false);
     if (netErr != QNetworkReply::NoError) {
         QString msg = netErrStr;
-        if (netErr == QNetworkReply::ConnectionRefusedError || netErr == QNetworkReply::HostNotFoundError) {
+        if (cloudMode()) {
+            if (errBody.contains("Authentication") || errBody.contains("invalid_request_error")
+                || errBody.contains("\"code\":\"invalid") || errBody.contains("401")) {
+                msg = QStringLiteral("DeepSeek rejected the API key -- double-check it in cloud settings.");
+            } else if (!errBody.isEmpty()) {
+                msg = QString::fromUtf8(errBody.left(200));
+            }
+        } else if (netErr == QNetworkReply::ConnectionRefusedError || netErr == QNetworkReply::HostNotFoundError) {
             msg = QStringLiteral("my brain (Ollama) isn't awake. Launch me with the LOTEI shortcut.");
         }
         emit errorOccurred(QStringLiteral("Hrm: %1").arg(msg));
@@ -926,16 +1137,20 @@ void LoteiBackend::onStreamFinished(QNetworkReply *reply)
 void LoteiBackend::runToolCalls(const QJsonArray &toolCalls, int index)
 {
     if (index >= toolCalls.size()) {
-        dispatchToOllama();
+        dispatch();   // continue on whichever brain is active (local or cloud)
         return;
     }
 
-    const QJsonObject fn = toolCalls.at(index).toObject().value("function").toObject();
+    const QJsonObject call = toolCalls.at(index).toObject();
+    const QString callId = call.value("id").toString();
+    const QJsonObject fn = call.value("function").toObject();
     const QString name = fn.value("name").toString();
     const QJsonObject args = fn.value("arguments").toObject();
 
-    runOneTool(name, args, [this, toolCalls, index](const QString &result) {
-        m_history.append(QJsonObject{{"role", "tool"}, {"content", result}});
+    runOneTool(name, args, [this, toolCalls, index, callId](const QString &result) {
+        QJsonObject toolMsg{{"role", "tool"}, {"content", result}};
+        if (!callId.isEmpty()) { toolMsg["tool_call_id"] = callId; }   // OpenAI pairing (cloud)
+        m_history.append(toolMsg);
         runToolCalls(toolCalls, index + 1);
     });
 }

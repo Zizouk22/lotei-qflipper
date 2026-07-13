@@ -19,7 +19,7 @@ https://github.com/user-attachments/assets/026177db-b18d-437a-8670-7ccf5799bc9e
 
 A heavily-customized qFlipper UI starring **LOTEI** — a snarky, **100% local** AI dolphin that lives inside the app — plus a full pink makeover, a runtime color editor, neural voice, and a live Flipper-screen mirror.
 
-**No API keys. No cloud. No cost.** LOTEI runs entirely on your machine via [Ollama](https://ollama.com).
+**Local by default — no API keys, no cloud, no cost.** LOTEI runs entirely on your machine via [Ollama](https://ollama.com). If your local model feels underpowered, an **optional cloud brain** (DeepSeek) is one click away in the chat header — it keeps full Flipper tool access, and your API key is stored locally, never synced. Toggle `⌂ local` ⇄ `☁ cloud` to switch anytime.
 
 <!-- Screenshots: on GitHub, click the pencil (Edit) on this README and drag your
      images / video right here — GitHub uploads + hosts them and inserts the markdown
@@ -28,6 +28,7 @@ A heavily-customized qFlipper UI starring **LOTEI** — a snarky, **100% local**
 ## ✨ Features
 
 - **🐬 LOTEI** — a local-AI chat assistant (Ollama + `qwen2.5:7b`) built right into the app: a flirty, vain, RAM-glutton pink dolphin with **agentic tools**. He can browse and read your Flipper's SD card, save scripts onto it, and press the device's buttons to navigate menus — all over qFlipper's existing RPC link.
+- **☁ Optional cloud brain** — switch LOTEI from local Ollama to **DeepSeek** (OpenAI-compatible) right from the chat header when you want stronger answers. Same agentic Flipper tools, streamed live; the API key + model are set in-app (⚙) and stored locally.
 - **🎙️ Neural voice** — local [Piper](https://github.com/rhasspy/piper) text-to-speech with a click-to-cycle voice switcher and mood-based tempo. Falls back to Windows SAPI if Piper isn't installed.
 - **🎨 Live color editor** — recolor the *entire* UI at runtime, every color individually, with live preview. Persists across launches. (Click **COLORS**, top-left.)
 - **👁️ Flipper-screen mirror** — watch the device's 128×64 screen live in the chat panel as LOTEI works.
