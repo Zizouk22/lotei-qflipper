@@ -23,6 +23,7 @@ class SystemSetDateTimeOperation;
 class SystemFactoryResetOperation;
 class SystemUpdateOperation;
 class SystemProtobufVersionOperation;
+class AppStartOperation;
 
 class StorageListOperation;
 class StorageInfoOperation;
@@ -92,6 +93,8 @@ public:
     StorageReadOperation *storageRead(const QByteArray &path, QIODevice *file);
     StorageWriteOperation *storageWrite(const QByteArray &path, QIODevice *file);
     StorageMd5SumOperation *storageMd5Sum(const QByteArray &path);
+
+    AppStartOperation *appStart(const QByteArray &name, const QByteArray &args = QByteArray());
 
     GuiStartScreenStreamOperation *guiStartScreenStream();
     GuiStopScreenStreamOperation *guiStopScreenStream();

@@ -4,6 +4,7 @@
 
 #include "mainresponse.h"
 
+#include "apprequest.h"
 #include "guirequest.h"
 #include "statusrequest.h"
 #include "systemrequest.h"
@@ -77,6 +78,11 @@ const QByteArray ProtobufPlugin::systemUpdateRequest(uint32_t id, const QByteArr
 const QByteArray ProtobufPlugin::systemProtobufVersion(uint32_t id) const
 {
     return SystemProtobufVersionRequest(id).encode();
+}
+
+const QByteArray ProtobufPlugin::appStart(uint32_t id, const QByteArray &name, const QByteArray &args) const
+{
+    return AppStartRequest(id, name, args).encode();
 }
 
 const QByteArray ProtobufPlugin::guiStartScreenStream(uint32_t id) const

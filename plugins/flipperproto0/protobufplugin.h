@@ -27,6 +27,8 @@ public:
     const QByteArray systemUpdateRequest(uint32_t id, const QByteArray &manifestPath) const override;
     const QByteArray systemProtobufVersion(uint32_t id) const override;
 
+    const QByteArray appStart(uint32_t id, const QByteArray &name, const QByteArray &args = QByteArray()) const override;
+
     const QByteArray guiStartScreenStream(uint32_t id) const override;
     const QByteArray guiStopScreenStream(uint32_t id) const override;
     const QByteArray guiScreenFrame(uint32_t id, const QByteArray screenData) const override;

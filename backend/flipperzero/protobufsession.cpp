@@ -34,6 +34,7 @@
 
 #include "rpc/guisendinputoperation.h"
 #include "rpc/guiscreenframeoperation.h"
+#include "rpc/appstartoperation.h"
 #include "rpc/guistartscreenstreamoperation.h"
 #include "rpc/guistopscreenstreamoperation.h"
 #include "rpc/guistartvirtualdisplayoperation.h"
@@ -205,6 +206,11 @@ StorageWriteOperation *ProtobufSession::storageWrite(const QByteArray &path, QIO
 StorageMd5SumOperation *ProtobufSession::storageMd5Sum(const QByteArray &path)
 {
     return enqueueOperation(new StorageMd5SumOperation(getAndIncrementCounter(), path, this));
+}
+
+AppStartOperation *ProtobufSession::appStart(const QByteArray &name, const QByteArray &args)
+{
+    return enqueueOperation(new AppStartOperation(getAndIncrementCounter(), name, args, this));
 }
 
 GuiStartScreenStreamOperation *ProtobufSession::guiStartScreenStream()

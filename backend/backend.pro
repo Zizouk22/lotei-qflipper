@@ -26,6 +26,7 @@ SOURCES += \
     flipperzero/rpc/abstractprotobufoperation.cpp \
     flipperzero/rpc/abstractstorageoperation.cpp \
     flipperzero/rpc/guiscreenframeoperation.cpp \
+    flipperzero/rpc/appstartoperation.cpp \
     flipperzero/rpc/guisendinputoperation.cpp \
     flipperzero/rpc/guistartscreenstreamoperation.cpp \
     flipperzero/rpc/guistartvirtualdisplayoperation.cpp \
@@ -139,6 +140,7 @@ HEADERS += \
     flipperzero/rpc/abstractprotobufoperation.h \
     flipperzero/rpc/abstractstorageoperation.h \
     flipperzero/rpc/guiscreenframeoperation.h \
+    flipperzero/rpc/appstartoperation.h \
     flipperzero/rpc/guisendinputoperation.h \
     flipperzero/rpc/guistartscreenstreamoperation.h \
     flipperzero/rpc/guistartvirtualdisplayoperation.h \

@@ -40,6 +40,7 @@
 #include "flipperzero/rpc/storagestatoperation.h"
 #include "flipperzero/rpc/storageinfooperation.h"
 #include "flipperzero/rpc/systemrebootoperation.h"
+#include "flipperzero/rpc/appstartoperation.h"
 
 // ---- Configuration -------------------------------------------------------
 static const char *LOTEI_MODEL = "qwen2.5:7b";
@@ -80,6 +81,7 @@ DEVICE ACCESS -- the Flipper's microSD card and storage, via tools:
 - save_file(path, content): write/save a file to the SD card (e.g. a script you generated). Folder by type: BadUSB -> /ext/badusb/NAME.txt, Sub-GHz -> /ext/subghz/NAME.sub, Infrared -> /ext/infrared/NAME.ir, NFC -> /ext/nfc/NAME.nfc, else /ext/. The folder must already exist.
 - make_dir(path), delete_path(path, recursive), rename_path(old_path, new_path), stat_path(path), disk_info(path): full file management. Create a folder (make_dir) BEFORE save_file if it's missing; delete/rename files or folders; stat_path checks existence + type + size; disk_info gives free/total space. delete_path is destructive -- only when the user asked.
 - reboot(mode): restart the Flipper -- mode os (normal), recovery (DFU) or updater. This drops the link; only when the user explicitly asks.
+- launch_app(app, args): open any app DIRECTLY -- a built-in ("Sub-GHz", "NFC", "Infrared", "Bad USB", "125 kHz RFID"...) or a .fap path under /ext/apps. STRONGLY prefer this over press_button navigation to start a tool -- it's one reliable call instead of blind menu counting. It fails if another app is already open, so exit first if needed.
 - ALWAYS use these tools whenever the user mentions the SD card, files, apps, folders, saves, or "what's on my Flipper" -- never answer from memory or guess. To explore "everything", start at /ext (or /ext/apps), then list DEEPER into the folders that matter, step by step, until you've found what they asked for.
 - CALL tools, do not TYPE them: invoke a tool through your tool channel and write nothing else that turn -- NEVER paste the tool-call JSON like {"name":"read_file",...} into the chat, never narrate or "show" the call. One call, wait for its result, then react. If you print the JSON yourself it never runs and you look broken.
 - Device facts are NOT files, and NOT something to hunt for on the screen. Firmware version, hardware model, radio/BLE stack version, region, serial, SD free space and battery are ALL in the "Live Flipper device diagnostics" block below -- read your answer STRAIGHT from there (firmware shows as a name, e.g. "mntm-dev (commit ...)" for Momentum, or a number for stock). If a fact genuinely isn't in that block, say so plainly. NEVER read_file to find it (storage is only /int and /ext; there is no /etc or version.txt), and NEVER press buttons to "go check" it.
@@ -349,6 +351,21 @@ static QJsonArray loteiTools()
             }}
         }}
     };
+    const QJsonObject launchApp{
+        {"type", "function"},
+        {"function", QJsonObject{
+            {"name", "launch_app"},
+            {"description", "Launch/open an app on the connected Flipper Zero directly (no menu navigation). Use a built-in app name -- \"Sub-GHz\", \"125 kHz RFID\", \"NFC\", \"Infrared\", \"GPIO\", \"iButton\", \"Bad USB\", \"U2F\", \"Apps\" -- OR a full .fap path under /ext/apps (e.g. /ext/apps/Tools/uart_terminal.fap). Prefer this over press_button to start a tool. Fails if another app is already open (exit it first)."},
+            {"parameters", QJsonObject{
+                {"type", "object"},
+                {"properties", QJsonObject{
+                    {"app", QJsonObject{{"type", "string"}, {"description", "Built-in app name or absolute .fap path"}}},
+                    {"args", QJsonObject{{"type", "string"}, {"description", "Optional argument string passed to the app (e.g. a file to open)"}}}
+                }},
+                {"required", QJsonArray{"app"}}
+            }}
+        }}
+    };
     const QJsonObject reboot{
         {"type", "function"},
         {"function", QJsonObject{
@@ -364,7 +381,7 @@ static QJsonArray loteiTools()
         }}
     };
     return QJsonArray{listFiles, readFile, pressButton, saveFile,
-                      makeDir, deletePath, renamePath, statPath, diskInfo, reboot};
+                      makeDir, deletePath, renamePath, statPath, diskInfo, launchApp, reboot};
 }
 
 LoteiBackend::LoteiBackend(QObject *parent)
@@ -1443,6 +1460,16 @@ void LoteiBackend::runOneTool(const QString &name, const QJsonObject &args, std:
             if (op->isError()) { done(QStringLiteral("{\"error\":\"%1\"}").arg(op->errorString())); return; }
             done(QStringLiteral("{\"free_bytes\":%1,\"total_bytes\":%2}")
                      .arg(op->sizeFree()).arg(op->sizeTotal()));
+        });
+
+    } else if (name == QLatin1String("launch_app")) {
+        const QByteArray appName = args.value("app").toString().toUtf8();
+        const QByteArray appArgs = args.value("args").toString().toUtf8();
+        if (appName.isEmpty()) { done(QStringLiteral("{\"error\":\"no app given\"}")); return; }
+        auto *op = dev->rpc()->appStart(appName, appArgs);
+        connect(op, &AbstractOperation::finished, this, [op, appName, done]() {
+            done(op->isError() ? QStringLiteral("{\"error\":\"%1\",\"hint\":\"another app may be running -- exit it first, or the name/path is wrong\"}").arg(op->errorString())
+                               : QStringLiteral("{\"launched\":\"%1\"}").arg(QString::fromUtf8(appName)));
         });
 
     } else if (name == QLatin1String("reboot")) {
