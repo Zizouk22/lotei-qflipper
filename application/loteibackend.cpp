@@ -81,7 +81,7 @@ DEVICE ACCESS -- the Flipper's microSD card and storage, via tools:
 - save_file(path, content): write/save a file to the SD card (e.g. a script you generated). Folder by type: BadUSB -> /ext/badusb/NAME.txt, Sub-GHz -> /ext/subghz/NAME.sub, Infrared -> /ext/infrared/NAME.ir, NFC -> /ext/nfc/NAME.nfc, else /ext/. The folder must already exist.
 - make_dir(path), delete_path(path, recursive), rename_path(old_path, new_path), stat_path(path), disk_info(path): full file management. Create a folder (make_dir) BEFORE save_file if it's missing; delete/rename files or folders; stat_path checks existence + type + size; disk_info gives free/total space. delete_path is destructive -- only when the user asked.
 - reboot(mode): restart the Flipper -- mode os (normal), recovery (DFU) or updater. This drops the link; only when the user explicitly asks.
-- launch_app(app, args): open any app DIRECTLY -- a built-in ("Sub-GHz", "NFC", "Infrared", "Bad USB", "125 kHz RFID"...) or a .fap path under /ext/apps. STRONGLY prefer this over press_button navigation to start a tool -- it's one reliable call instead of blind menu counting. It fails if another app is already open, so exit first if needed.
+- launch_app(app, args): open any app DIRECTLY -- a built-in ("Sub-GHz", "NFC", "Infrared", "Bad USB", "125 kHz RFID"...) or a .fap path under /ext/apps. ALWAYS use this to start ANY app -- NEVER navigate menus with press_button to open something (blind button-counting is unreliable and you can't see the result). For a GAME or any add-on app (e.g. Snake), it is a .fap, not a built-in: first list_files the category (e.g. /ext/apps/Games) to find the exact file, THEN launch_app with that full path (e.g. /ext/apps/Games/snake.fap). It fails if another app is already open. Reserve press_button strictly for navigating WITHIN an app the user asked you to drive.
 - ALWAYS use these tools whenever the user mentions the SD card, files, apps, folders, saves, or "what's on my Flipper" -- never answer from memory or guess. To explore "everything", start at /ext (or /ext/apps), then list DEEPER into the folders that matter, step by step, until you've found what they asked for.
 - CALL tools, do not TYPE them: invoke a tool through your tool channel and write nothing else that turn -- NEVER paste the tool-call JSON like {"name":"read_file",...} into the chat, never narrate or "show" the call. One call, wait for its result, then react. If you print the JSON yourself it never runs and you look broken.
 - Device facts are NOT files, and NOT something to hunt for on the screen. Firmware version, hardware model, radio/BLE stack version, region, serial, SD free space and battery are ALL in the "Live Flipper device diagnostics" block below -- read your answer STRAIGHT from there (firmware shows as a name, e.g. "mntm-dev (commit ...)" for Momentum, or a number for stock). If a fact genuinely isn't in that block, say so plainly. NEVER read_file to find it (storage is only /int and /ext; there is no /etc or version.txt), and NEVER press buttons to "go check" it.
@@ -399,6 +399,7 @@ LoteiBackend::LoteiBackend(QObject *parent)
     m_provider = QSettings().value(QStringLiteral("lotei/provider"), QStringLiteral("ollama")).toString();
     m_apiKey = QSettings().value(QStringLiteral("lotei/deepseekKey")).toString();
     m_cloudModel = QSettings().value(QStringLiteral("lotei/deepseekModel"), QStringLiteral("deepseek-chat")).toString();
+    m_personaName = QSettings().value(QStringLiteral("lotei/personaName"), QStringLiteral("Snarky pink dolphin")).toString();
     m_setupComplete = QSettings().value(QStringLiteral("lotei/setupComplete"), false).toBool();
     m_manualName = QSettings().value(QStringLiteral("lotei/manualName")).toString();
 #ifdef HZUI_VOICE
@@ -837,7 +838,12 @@ void LoteiBackend::applyPreset(const QString &name)
     }
     // "Snarky pink dolphin" clears the override -> the built-in default stands.
     QSettings().setValue(QStringLiteral("lotei/personality"), persona);
+    m_personaName = name;
+    QSettings().setValue(QStringLiteral("lotei/personaName"), m_personaName);
+    emit personaNameChanged();
 }
+
+QString LoteiBackend::personaName() const { return m_personaName; }
 
 void LoteiBackend::applyNamePersonality()
 {

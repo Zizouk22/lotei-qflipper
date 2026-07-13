@@ -42,6 +42,7 @@ class LoteiBackend : public QObject
     Q_PROPERTY(bool cloudMode READ cloudMode NOTIFY providerChanged)   // active brain is DeepSeek (cloud)
     Q_PROPERTY(bool apiKeySet READ apiKeySet NOTIFY apiKeyChanged)     // a DeepSeek key is stored
     Q_PROPERTY(QString cloudModel READ cloudModel WRITE setCloudModel NOTIFY cloudModelChanged)
+    Q_PROPERTY(QString personaName READ personaName NOTIFY personaNameChanged)   // active preset label
 
 public:
     explicit LoteiBackend(QObject *parent = nullptr);
@@ -73,6 +74,7 @@ public:
     QString cloudModel() const;
     void setCloudModel(const QString &model);
     Q_INVOKABLE void setApiKey(const QString &key);   // store the DeepSeek key (QSettings, runtime-only)
+    QString personaName() const;                      // label of the active personality preset
 
     Q_INVOKABLE void send(const QString &userText, const QString &deviceContext);
     Q_INVOKABLE void reset();
@@ -105,6 +107,7 @@ signals:
     void providerChanged();
     void apiKeyChanged();
     void cloudModelChanged();
+    void personaNameChanged();
 
 private:
     void setThinking(bool value);
@@ -144,6 +147,7 @@ private:
     QString     m_provider = QStringLiteral("ollama");  // "ollama" (local) | "deepseek" (cloud)
     QString     m_apiKey;    // DeepSeek API key (persisted at runtime; NEVER committed to git)
     QString     m_cloudModel;// DeepSeek model id (e.g. deepseek-chat)
+    QString     m_personaName;// label of the active personality preset (display only)
     QStringList m_models;   // models discovered via /api/tags
     QStringList m_noToolModels;  // models Ollama rejects tools for (e.g. Gemma) -> chat-only
     bool        m_setupComplete = false;

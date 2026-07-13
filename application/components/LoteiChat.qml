@@ -203,6 +203,22 @@ Rectangle {
                     onClicked: cloudCfg.open()
                 }
             }
+            // personality switcher -- change LOTEI's character anytime
+            Text {
+                text: "🎭"
+                color: personaMouse.containsMouse ? Theme.color.lightorange2 : Theme.color.mediumorange4
+                font.family: "Share Tech Mono"
+                font.pixelSize: 12
+                Layout.alignment: Qt.AlignVCenter
+                MouseArea {
+                    id: personaMouse
+                    anchors.fill: parent
+                    anchors.margins: -4
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: personaCfg.open()
+                }
+            }
             Text {
                 text: "voice"
                 color: Lotei.muted ? Theme.color.mediumorange1 : Theme.color.lightorange2
@@ -557,6 +573,71 @@ Rectangle {
                         cloudCfg.close();
                     }
                 }
+            }
+        }
+    }
+
+    // ---- personality picker ----
+    Popup {
+        id: personaCfg
+        parent: Overlay.overlay
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        dim: true
+        width: 320
+        padding: 16
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: "#0b0410"; radius: 9; border.width: 2; border.color: Theme.color.lightorange2
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 8
+
+            Text {
+                text: "🎭 Personality"
+                color: Theme.color.lightorange2
+                font.family: "Share Tech Mono"; font.pixelSize: 15; font.bold: true
+            }
+            Text {
+                text: "Active: " + Lotei.personaName
+                color: Theme.color.mediumorange4
+                font.family: "Share Tech Mono"; font.pixelSize: 11
+                Layout.fillWidth: true
+            }
+            Repeater {
+                model: Lotei.personalityPresets()
+                delegate: Rectangle {
+                    Layout.fillWidth: true
+                    height: 30
+                    radius: 5
+                    color: presetMouse.containsMouse ? "#231033" : "#160a1f"
+                    border.width: 1
+                    border.color: (modelData === Lotei.personaName) ? Theme.color.lightorange2 : Theme.color.mediumorange2
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.leftMargin: 10
+                        text: modelData
+                        color: "white"
+                        font.family: "Share Tech Mono"; font.pixelSize: 12
+                    }
+                    MouseArea {
+                        id: presetMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: { Lotei.applyPreset(modelData); Lotei.reset(); personaCfg.close(); }
+                    }
+                }
+            }
+            Text {
+                text: "Switching resets the current chat so the new character starts clean."
+                color: Theme.color.mediumorange1
+                font.family: "Share Tech Mono"; font.pixelSize: 10
+                wrapMode: Text.WordWrap; Layout.fillWidth: true
             }
         }
     }
