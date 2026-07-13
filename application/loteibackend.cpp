@@ -34,6 +34,12 @@
 #include "flipperzero/rpc/storagereadoperation.h"
 #include "flipperzero/rpc/guisendinputoperation.h"
 #include "flipperzero/rpc/storagewriteoperation.h"
+#include "flipperzero/rpc/storagemkdiroperation.h"
+#include "flipperzero/rpc/storageremoveoperation.h"
+#include "flipperzero/rpc/storagerenameoperation.h"
+#include "flipperzero/rpc/storagestatoperation.h"
+#include "flipperzero/rpc/storageinfooperation.h"
+#include "flipperzero/rpc/systemrebootoperation.h"
 
 // ---- Configuration -------------------------------------------------------
 static const char *LOTEI_MODEL = "qwen2.5:7b";
@@ -72,6 +78,8 @@ DEVICE ACCESS -- the Flipper's microSD card and storage, via tools:
 - list_files(path): list files/folders at a path. Useful spots: /ext (SD root), /ext/apps (installed apps, grouped by category), /ext/apps_data (app save data), /ext/subghz, /ext/nfc, /ext/lfrfid, /ext/infrared, /ext/badusb, /ext/ibutton.
 - read_file(path): read a text file's contents.
 - save_file(path, content): write/save a file to the SD card (e.g. a script you generated). Folder by type: BadUSB -> /ext/badusb/NAME.txt, Sub-GHz -> /ext/subghz/NAME.sub, Infrared -> /ext/infrared/NAME.ir, NFC -> /ext/nfc/NAME.nfc, else /ext/. The folder must already exist.
+- make_dir(path), delete_path(path, recursive), rename_path(old_path, new_path), stat_path(path), disk_info(path): full file management. Create a folder (make_dir) BEFORE save_file if it's missing; delete/rename files or folders; stat_path checks existence + type + size; disk_info gives free/total space. delete_path is destructive -- only when the user asked.
+- reboot(mode): restart the Flipper -- mode os (normal), recovery (DFU) or updater. This drops the link; only when the user explicitly asks.
 - ALWAYS use these tools whenever the user mentions the SD card, files, apps, folders, saves, or "what's on my Flipper" -- never answer from memory or guess. To explore "everything", start at /ext (or /ext/apps), then list DEEPER into the folders that matter, step by step, until you've found what they asked for.
 - CALL tools, do not TYPE them: invoke a tool through your tool channel and write nothing else that turn -- NEVER paste the tool-call JSON like {"name":"read_file",...} into the chat, never narrate or "show" the call. One call, wait for its result, then react. If you print the JSON yourself it never runs and you look broken.
 - Device facts are NOT files, and NOT something to hunt for on the screen. Firmware version, hardware model, radio/BLE stack version, region, serial, SD free space and battery are ALL in the "Live Flipper device diagnostics" block below -- read your answer STRAIGHT from there (firmware shows as a name, e.g. "mntm-dev (commit ...)" for Momentum, or a number for stock). If a fact genuinely isn't in that block, say so plainly. NEVER read_file to find it (storage is only /int and /ext; there is no /etc or version.txt), and NEVER press buttons to "go check" it.
@@ -269,7 +277,94 @@ static QJsonArray loteiTools()
             }}
         }}
     };
-    return QJsonArray{listFiles, readFile, pressButton, saveFile};
+    const QJsonObject makeDir{
+        {"type", "function"},
+        {"function", QJsonObject{
+            {"name", "make_dir"},
+            {"description", "Create a folder ON THE CONNECTED FLIPPER ZERO (needed before saving a file into a folder that doesn't exist yet)."},
+            {"parameters", QJsonObject{
+                {"type", "object"},
+                {"properties", QJsonObject{
+                    {"path", QJsonObject{{"type", "string"}, {"description", "Absolute folder path, e.g. /ext/apps_data/mytool"}}}
+                }},
+                {"required", QJsonArray{"path"}}
+            }}
+        }}
+    };
+    const QJsonObject deletePath{
+        {"type", "function"},
+        {"function", QJsonObject{
+            {"name", "delete_path"},
+            {"description", "Delete a file or folder ON THE CONNECTED FLIPPER ZERO. Set recursive=true to delete a non-empty folder. Destructive -- only when the user asked for it."},
+            {"parameters", QJsonObject{
+                {"type", "object"},
+                {"properties", QJsonObject{
+                    {"path", QJsonObject{{"type", "string"}, {"description", "Absolute path to delete"}}},
+                    {"recursive", QJsonObject{{"type", "boolean"}, {"description", "Delete a folder and everything inside it (default false)"}}}
+                }},
+                {"required", QJsonArray{"path"}}
+            }}
+        }}
+    };
+    const QJsonObject renamePath{
+        {"type", "function"},
+        {"function", QJsonObject{
+            {"name", "rename_path"},
+            {"description", "Rename or move a file/folder ON THE CONNECTED FLIPPER ZERO (both paths on the same storage)."},
+            {"parameters", QJsonObject{
+                {"type", "object"},
+                {"properties", QJsonObject{
+                    {"old_path", QJsonObject{{"type", "string"}, {"description", "Current absolute path"}}},
+                    {"new_path", QJsonObject{{"type", "string"}, {"description", "New absolute path"}}}
+                }},
+                {"required", QJsonArray{"old_path", "new_path"}}
+            }}
+        }}
+    };
+    const QJsonObject statPath{
+        {"type", "function"},
+        {"function", QJsonObject{
+            {"name", "stat_path"},
+            {"description", "Check whether a path exists ON THE CONNECTED FLIPPER ZERO and get its type (file/dir) and size in bytes."},
+            {"parameters", QJsonObject{
+                {"type", "object"},
+                {"properties", QJsonObject{
+                    {"path", QJsonObject{{"type", "string"}, {"description", "Absolute path to check"}}}
+                }},
+                {"required", QJsonArray{"path"}}
+            }}
+        }}
+    };
+    const QJsonObject diskInfo{
+        {"type", "function"},
+        {"function", QJsonObject{
+            {"name", "disk_info"},
+            {"description", "Get free and total bytes of a storage ON THE CONNECTED FLIPPER ZERO. Use /ext for the SD card, /int for internal."},
+            {"parameters", QJsonObject{
+                {"type", "object"},
+                {"properties", QJsonObject{
+                    {"path", QJsonObject{{"type", "string"}, {"description", "Storage root: /ext or /int (default /ext)"}}}
+                }},
+                {"required", QJsonArray{}}
+            }}
+        }}
+    };
+    const QJsonObject reboot{
+        {"type", "function"},
+        {"function", QJsonObject{
+            {"name", "reboot"},
+            {"description", "Reboot the connected Flipper Zero. mode: 'os' (normal restart), 'recovery' (DFU), or 'updater'. This drops the link; only when the user asks."},
+            {"parameters", QJsonObject{
+                {"type", "object"},
+                {"properties", QJsonObject{
+                    {"mode", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"os", "recovery", "updater"}}, {"description", "Reboot target (default os)"}}}
+                }},
+                {"required", QJsonArray{}}
+            }}
+        }}
+    };
+    return QJsonArray{listFiles, readFile, pressButton, saveFile,
+                      makeDir, deletePath, renamePath, statPath, diskInfo, reboot};
 }
 
 LoteiBackend::LoteiBackend(QObject *parent)
@@ -1292,6 +1387,72 @@ void LoteiBackend::runOneTool(const QString &name, const QJsonObject &args, std:
             buf->deleteLater();
             done(result);
         });
+
+    } else if (name == QLatin1String("make_dir")) {
+        const QByteArray path = args.value("path").toString().toUtf8();
+        if (path.isEmpty()) { done(QStringLiteral("{\"error\":\"no path given\"}")); return; }
+        if (const QString err = badStoragePath(QString::fromUtf8(path)); !err.isEmpty()) { done(err); return; }
+        auto *op = dev->rpc()->storageMkdir(path);
+        connect(op, &AbstractOperation::finished, this, [op, path, done]() {
+            done(op->isError() ? QStringLiteral("{\"error\":\"%1\"}").arg(op->errorString())
+                               : QStringLiteral("{\"created\":\"%1\"}").arg(QString::fromUtf8(path)));
+        });
+
+    } else if (name == QLatin1String("delete_path")) {
+        const QByteArray path = args.value("path").toString().toUtf8();
+        const bool recursive = args.value("recursive").toBool(false);
+        if (path.isEmpty()) { done(QStringLiteral("{\"error\":\"no path given\"}")); return; }
+        if (const QString err = badStoragePath(QString::fromUtf8(path)); !err.isEmpty()) { done(err); return; }
+        auto *op = dev->rpc()->storageRemove(path, recursive);
+        connect(op, &AbstractOperation::finished, this, [op, path, done]() {
+            done(op->isError() ? QStringLiteral("{\"error\":\"%1\"}").arg(op->errorString())
+                               : QStringLiteral("{\"deleted\":\"%1\"}").arg(QString::fromUtf8(path)));
+        });
+
+    } else if (name == QLatin1String("rename_path")) {
+        const QByteArray oldp = args.value("old_path").toString().toUtf8();
+        const QByteArray newp = args.value("new_path").toString().toUtf8();
+        if (oldp.isEmpty() || newp.isEmpty()) { done(QStringLiteral("{\"error\":\"old_path and new_path are required\"}")); return; }
+        if (const QString err = badStoragePath(QString::fromUtf8(oldp)); !err.isEmpty()) { done(err); return; }
+        if (const QString err = badStoragePath(QString::fromUtf8(newp)); !err.isEmpty()) { done(err); return; }
+        auto *op = dev->rpc()->storageRename(oldp, newp);
+        connect(op, &AbstractOperation::finished, this, [op, oldp, newp, done]() {
+            done(op->isError() ? QStringLiteral("{\"error\":\"%1\"}").arg(op->errorString())
+                               : QStringLiteral("{\"renamed\":\"%1\",\"to\":\"%2\"}")
+                                     .arg(QString::fromUtf8(oldp), QString::fromUtf8(newp)));
+        });
+
+    } else if (name == QLatin1String("stat_path")) {
+        const QByteArray path = args.value("path").toString().toUtf8();
+        if (path.isEmpty()) { done(QStringLiteral("{\"error\":\"no path given\"}")); return; }
+        if (const QString err = badStoragePath(QString::fromUtf8(path)); !err.isEmpty()) { done(err); return; }
+        auto *op = dev->rpc()->storageStat(path);
+        connect(op, &AbstractOperation::finished, this, [op, path, done]() {
+            if (op->isError()) { done(QStringLiteral("{\"error\":\"%1\"}").arg(op->errorString())); return; }
+            if (!op->hasFile()) { done(QStringLiteral("{\"exists\":false,\"path\":\"%1\"}").arg(QString::fromUtf8(path))); return; }
+            const QString type = op->type() == Flipper::Zero::StorageStatOperation::Directory
+                                     ? QStringLiteral("dir") : QStringLiteral("file");
+            done(QStringLiteral("{\"exists\":true,\"type\":\"%1\",\"size\":%2}")
+                     .arg(type).arg(op->size()));
+        });
+
+    } else if (name == QLatin1String("disk_info")) {
+        const QByteArray path = args.value("path").toString(QStringLiteral("/ext")).toUtf8();
+        auto *op = dev->rpc()->storageInfo(path);
+        connect(op, &AbstractOperation::finished, this, [op, done]() {
+            if (op->isError()) { done(QStringLiteral("{\"error\":\"%1\"}").arg(op->errorString())); return; }
+            done(QStringLiteral("{\"free_bytes\":%1,\"total_bytes\":%2}")
+                     .arg(op->sizeFree()).arg(op->sizeTotal()));
+        });
+
+    } else if (name == QLatin1String("reboot")) {
+        const QString mode = args.value("mode").toString(QStringLiteral("os")).toLower();
+        Flipper::Zero::ProtobufSession *rpc = dev->rpc();
+        if (mode == QLatin1String("recovery"))     { rpc->rebootToRecovery(); }
+        else if (mode == QLatin1String("updater")) { rpc->rebootToUpdater(); }
+        else                                       { rpc->rebootToOS(); }
+        // A reboot drops the RPC link, so the op won't "finish" cleanly -- ack now.
+        done(QStringLiteral("{\"rebooting\":\"%1\"}").arg(mode));
 
     } else {
         done(QStringLiteral("{\"error\":\"unknown tool '%1'\"}").arg(name));
