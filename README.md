@@ -27,8 +27,10 @@ A heavily-customized qFlipper UI starring **LOTEI** — a snarky, **100% local**
 
 ## ✨ Features
 
-- **🐬 LOTEI** — a local-AI chat assistant (Ollama + `qwen2.5:7b`) built right into the app: a flirty, vain, RAM-glutton pink dolphin with **agentic tools**. He can browse and read your Flipper's SD card, save scripts onto it, and press the device's buttons to navigate menus — all over qFlipper's existing RPC link.
+- **🐬 LOTEI** — a local-AI chat assistant (Ollama + `qwen2.5:7b`) built right into the app: a flirty, vain, RAM-glutton pink dolphin with **agentic tools**, all over qFlipper's existing RPC link.
+- **🛠️ Full agentic toolset** — LOTEI drives the Flipper end-to-end: browse/read files, **create/delete/rename** files & folders, **stat** paths and read **free space**, save scripts, **launch any app** directly (a built-in like Sub-GHz/NFC/Bad USB, or any `.fap` by path), press buttons, and **reboot**. Give it a goal, it chains the calls itself.
 - **☁ Optional cloud brain** — switch LOTEI from local Ollama to **DeepSeek** (OpenAI-compatible) right from the chat header when you want stronger answers. Same agentic Flipper tools, streamed live; the API key + model are set in-app (⚙) and stored locally.
+- **🎭 Swappable personalities** — pick a preset from the setup wizard: the default snarky pink dolphin, or others including an **"Agent black-hat (FR)"** — a cold, French-speaking rogue operator that just executes. A chosen preset fully replaces the default character *and* language.
 - **🎙️ Neural voice** — local [Piper](https://github.com/rhasspy/piper) text-to-speech with a click-to-cycle voice switcher and mood-based tempo. Falls back to Windows SAPI if Piper isn't installed.
 - **🎨 Live color editor** — recolor the *entire* UI at runtime, every color individually, with live preview. Persists across launches. (Click **COLORS**, top-left.)
 - **👁️ Flipper-screen mirror** — watch the device's 128×64 screen live in the chat panel as LOTEI works.
@@ -74,7 +76,9 @@ After that, `build_pink_inc.bat` is the fast incremental build for code/QML chan
 
 ## 🧩 What was added on top of qFlipper
 
-All the LOTEI work lives in `application/`: `loteibackend.{h,cpp}` (the AI backend, agentic tools, Piper TTS, and the `LoteiPalette` color engine), `components/LoteiChat.qml` (the chat panel + screen mirror), `components/MusicPlayer.qml`, and the color editor in `components/MainWindow.qml`. The base project structure is unchanged from [upstream qFlipper](https://github.com/flipperdevices/qFlipper#project-structure).
+Most LOTEI work lives in `application/`: `loteibackend.{h,cpp}` (the AI backend, the agentic tools, the local/cloud provider switch, the personality presets, Piper TTS, and the `LoteiPalette` color engine), `components/LoteiChat.qml` (the chat panel, screen mirror, and cloud-settings popup), `components/MusicPlayer.qml`, and the color editor in `components/MainWindow.qml`.
+
+One capability reaches deeper: **`launch_app`** wires the Flipper's `App.StartRequest` protobuf message — which ships in the firmware but qFlipper never exposed — through every layer (`plugins/flipperproto0/apprequest.*`, `ProtobufPluginInterface::appStart`, the `flipperproto0` plugin, `ProtobufSession::appStart`, and `backend/flipperzero/rpc/appstartoperation.*`). The base project structure is otherwise unchanged from [upstream qFlipper](https://github.com/flipperdevices/qFlipper#project-structure).
 
 ## 🙏 Credits
 
